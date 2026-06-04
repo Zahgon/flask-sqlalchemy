@@ -48,14 +48,6 @@ class _FSAModel(Model):
     metadata: sa.MetaData
 
 
-def _get_2x_declarative_bases(
-    model_class: _FSA_MCT,
-) -> list[type[sa_orm.DeclarativeBase | sa_orm.DeclarativeBaseNoMeta]]:
-    return [
-        b
-        for b in model_class.__bases__
-        if issubclass(b, (sa_orm.DeclarativeBase, sa_orm.DeclarativeBaseNoMeta))
-    ]
 
 
 class SQLAlchemy:
@@ -310,81 +302,7 @@ class SQLAlchemy:
 
         :param app: The Flask application to initialize.
         """
-        if "sqlalchemy" in app.extensions:
-            raise RuntimeError(
-                "A 'SQLAlchemy' instance has already been registered on this Flask app."
-                " Import and use that instance instead."
-            )
-
-        app.extensions["sqlalchemy"] = self
-        app.teardown_appcontext(self._teardown_session)
-
-        if self._add_models_to_shell:
-            from .cli import add_models_to_shell
-
-            app.shell_context_processor(add_models_to_shell)
-
-        basic_uri: str | sa.engine.URL | None = app.config.setdefault(
-            "SQLALCHEMY_DATABASE_URI", None
-        )
-        basic_engine_options = self._engine_options.copy()
-        basic_engine_options.update(
-            app.config.setdefault("SQLALCHEMY_ENGINE_OPTIONS", {})
-        )
-        echo: bool = app.config.setdefault("SQLALCHEMY_ECHO", False)
-        config_binds: dict[str | None, str | sa.engine.URL | dict[str, t.Any]] = (
-            app.config.setdefault("SQLALCHEMY_BINDS", {})
-        )
-        engine_options: dict[str | None, dict[str, t.Any]] = {}
-
-        # Build the engine config for each bind key.
-        for key, value in config_binds.items():
-            engine_options[key] = self._engine_options.copy()
-
-            if isinstance(value, (str, sa.engine.URL)):
-                engine_options[key]["url"] = value
-            else:
-                engine_options[key].update(value)
-
-        # Build the engine config for the default bind key.
-        if basic_uri is not None:
-            basic_engine_options["url"] = basic_uri
-
-        if "url" in basic_engine_options:
-            engine_options.setdefault(None, {}).update(basic_engine_options)
-
-        if not engine_options:
-            raise RuntimeError(
-                "Either 'SQLALCHEMY_DATABASE_URI' or 'SQLALCHEMY_BINDS' must be set."
-            )
-
-        engines = self._app_engines.setdefault(app, {})
-
-        # Dispose existing engines in case init_app is called again.
-        if engines:
-            for engine in engines.values():
-                engine.dispose()
-
-            engines.clear()
-
-        # Create the metadata and engine for each bind key.
-        for key, options in engine_options.items():
-            self._make_metadata(key)
-            options.setdefault("echo", echo)
-            options.setdefault("echo_pool", echo)
-            self._apply_driver_defaults(options, app)
-            engines[key] = self._make_engine(key, options, app)
-
-        if app.config.setdefault("SQLALCHEMY_RECORD_QUERIES", False):
-            from . import record_queries
-
-            for engine in engines.values():
-                record_queries._listen(engine)
-
-        if app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False):
-            from . import track_modifications
-
-            track_modifications._listen(self.session)
+        pass
 
     def _make_scoped_session(
         self, options: dict[str, t.Any]
@@ -409,9 +327,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             Renamed from ``create_scoped_session``, this method is internal.
         """
-        scope = options.pop("scopefunc", _app_ctx_id)
-        factory = self._make_session_factory(options)
-        return sa_orm.scoped_session(factory, scope)
+        pass
 
     def _make_session_factory(
         self, options: dict[str, t.Any]
@@ -436,9 +352,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             Renamed from ``create_session``, this method is internal.
         """
-        options.setdefault("class_", Session)
-        options.setdefault("query_cls", self.Query)
-        return sa_orm.sessionmaker(db=self, **options)
+        pass
 
     def _teardown_session(self, exc: BaseException | None) -> None:
         """Remove the current session at the end of the request.
@@ -447,7 +361,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        self.session.remove()
+        pass
 
     def _make_metadata(self, bind_key: str | None) -> sa.MetaData:
         """Get or create a :class:`sqlalchemy.schema.MetaData` for the given bind key.
@@ -487,20 +401,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-
-        class Table(_Table):
-            def __new__(
-                cls, *args: t.Any, bind_key: str | None = None, **kwargs: t.Any
-            ) -> Table:
-                # If a metadata arg is passed, go directly to the base Table. Also do
-                # this for no args so the correct error is shown.
-                if not args or (len(args) >= 2 and isinstance(args[1], sa.MetaData)):
-                    return super().__new__(cls, *args, **kwargs)
-
-                metadata = self._make_metadata(bind_key)
-                return super().__new__(cls, *[args[0], metadata, *args[1:]], **kwargs)
-
-        return Table
+        pass
 
     def _make_declarative_base(
         self,
@@ -533,47 +434,7 @@ class SQLAlchemy:
         .. versionchanged:: 2.3
             ``model`` can be an already created declarative model class.
         """
-        model: type[_FSAModel]
-        declarative_bases = _get_2x_declarative_bases(model_class)
-        if len(declarative_bases) > 1:
-            # raise error if more than one declarative base is found
-            raise ValueError(
-                "Only one declarative base can be passed to SQLAlchemy."
-                f" Got: {model_class.__bases__}"
-            )
-        elif len(declarative_bases) == 1:
-            body = dict(model_class.__dict__)
-            body["__fsa__"] = self
-            mixin_classes = [BindMixin, NameMixin, Model]
-            if disable_autonaming:
-                mixin_classes.remove(NameMixin)
-            model = types.new_class(
-                "FlaskSQLAlchemyBase",
-                (*mixin_classes, *model_class.__bases__),
-                {"metaclass": type(declarative_bases[0])},
-                lambda ns: ns.update(body),
-            )
-        elif not isinstance(model_class, sa_orm.DeclarativeMeta):
-            metadata = self._make_metadata(None)
-            metaclass = DefaultMetaNoName if disable_autonaming else DefaultMeta
-            model = sa_orm.declarative_base(
-                metadata=metadata, cls=model_class, name="Model", metaclass=metaclass
-            )
-        else:
-            model = model_class  # type: ignore[assignment]
-
-        if None not in self.metadatas:
-            # Use the model's metadata as the default metadata.
-            model.metadata.info["bind_key"] = None
-            self.metadatas[None] = model.metadata
-        else:
-            # Use the passed in default metadata as the model's metadata.
-            model.metadata = self.metadatas[None]
-
-        model.query_class = self.Query
-        model.query = _QueryProperty()  # type: ignore[assignment]
-        model.__fsa__ = self
-        return model
+        pass
 
     def _apply_driver_defaults(self, options: dict[str, t.Any], app: Flask) -> None:
         """Apply driver-specific configuration to an engine.
@@ -606,43 +467,7 @@ class SQLAlchemy:
         .. versionchanged:: 2.5
             Returns ``(sa_url, options)``.
         """
-        url = sa.engine.make_url(options["url"])
-
-        if url.drivername in {"sqlite", "sqlite+pysqlite"}:
-            if url.database is None or url.database in {"", ":memory:"}:
-                options["poolclass"] = sa.pool.StaticPool
-
-                if "connect_args" not in options:
-                    options["connect_args"] = {}
-
-                options["connect_args"]["check_same_thread"] = False
-            else:
-                # the url might look like sqlite:///file:path?uri=true
-                is_uri = url.query.get("uri", False)
-
-                if is_uri:
-                    db_str = url.database[5:]
-                else:
-                    db_str = url.database
-
-                if not os.path.isabs(db_str):
-                    os.makedirs(app.instance_path, exist_ok=True)
-                    db_str = os.path.join(app.instance_path, db_str)
-
-                    if is_uri:
-                        db_str = f"file:{db_str}"
-
-                    options["url"] = url.set(database=db_str)
-        elif url.drivername.startswith("mysql"):
-            # set queue defaults only when using queue pool
-            if (
-                "pool_class" not in options
-                or options["pool_class"] is sa.pool.QueuePool
-            ):
-                options.setdefault("pool_recycle", 7200)
-
-            if "charset" not in url.query:
-                options["url"] = url.update_query_dict({"charset": "utf8mb4"})
+        pass
 
     def _make_engine(
         self, bind_key: str | None, options: dict[str, t.Any], app: Flask
@@ -664,14 +489,14 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             Renamed from ``create_engine``, this method is internal.
         """
-        return sa.engine_from_config(options, prefix="")
+        pass
 
     @property
     def metadata(self) -> sa.MetaData:
         """The default metadata used by :attr:`Model` and :attr:`Table` if no bind key
         is set.
         """
-        return self.metadatas[None]
+        pass
 
     @property
     def engines(self) -> t.Mapping[str | None, sa.engine.Engine]:
@@ -686,16 +511,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        app = current_app._get_current_object()  # type: ignore[attr-defined]
-
-        if app not in self._app_engines:
-            raise RuntimeError(
-                "The current Flask app is not registered with this 'SQLAlchemy'"
-                " instance. Did you forget to call 'init_app', or did you create"
-                " multiple 'SQLAlchemy' instances?"
-            )
-
-        return self._app_engines[app]
+        pass
 
     @property
     def engine(self) -> sa.engine.Engine:
@@ -708,7 +524,7 @@ class SQLAlchemy:
 
         This requires that a Flask application context is active.
         """
-        return self.engines[None]
+        pass
 
     def get_engine(
         self, bind_key: str | None = None, **kwargs: t.Any
@@ -725,18 +541,7 @@ class SQLAlchemy:
             Renamed the ``bind`` parameter to ``bind_key``. Removed the ``app``
             parameter.
         """
-        warnings.warn(
-            "'get_engine' is deprecated and will be removed in Flask-SQLAlchemy"
-            " 3.2. Use 'engine' or 'engines[key]' instead. If you're using"
-            " Flask-Migrate or Alembic, you'll need to update your 'env.py' file.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        if "bind" in kwargs:
-            bind_key = kwargs.pop("bind")
-
-        return self.engines[bind_key]
+        pass
 
     def get_or_404(
         self,
@@ -759,12 +564,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        value = self.session.get(entity, ident, **kwargs)
-
-        if value is None:
-            abort(404, description=description)
-
-        return value
+        pass
 
     def first_or_404(
         self, statement: sa.sql.Select[t.Any], *, description: str | None = None
@@ -777,12 +577,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        value = self.session.execute(statement).scalar()
-
-        if value is None:
-            abort(404, description=description)
-
-        return value
+        pass
 
     def one_or_404(
         self, statement: sa.sql.Select[t.Any], *, description: str | None = None
@@ -796,10 +591,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        try:
-            return self.session.execute(statement).scalar_one()
-        except (sa_exc.NoResultFound, sa_exc.MultipleResultsFound):
-            abort(404, description=description)
+        pass
 
     def paginate(
         self,
@@ -838,15 +630,7 @@ class SQLAlchemy:
 
         .. versionadded:: 3.0
         """
-        return SelectPagination(
-            select=select,
-            session=self.session(),
-            page=page,
-            per_page=per_page,
-            max_per_page=max_per_page,
-            error_out=error_out,
-            count=count,
-        )
+        pass
 
     def _call_for_binds(
         self, bind_key: str | None | list[str | None], op_name: str
@@ -861,26 +645,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             Renamed from ``_execute_for_all_tables``.
         """
-        if bind_key == "__all__":
-            keys: list[str | None] = list(self.metadatas)
-        elif bind_key is None or isinstance(bind_key, str):
-            keys = [bind_key]
-        else:
-            keys = bind_key
-
-        for key in keys:
-            try:
-                engine = self.engines[key]
-            except KeyError:
-                message = f"Bind key '{key}' is not in 'SQLALCHEMY_BINDS' config."
-
-                if key is None:
-                    message = f"'SQLALCHEMY_DATABASE_URI' config is not set. {message}"
-
-                raise sa_exc.UnboundExecutionError(message) from None
-
-            metadata = self.metadatas[key]
-            getattr(metadata, op_name)(bind=engine)
+        pass
 
     def create_all(self, bind_key: str | None | list[str | None] = "__all__") -> None:
         """Create tables that do not exist in the database by calling
@@ -899,7 +664,7 @@ class SQLAlchemy:
         .. versionchanged:: 0.12
             Added the ``bind`` and ``app`` parameters.
         """
-        self._call_for_binds(bind_key, "create_all")
+        pass
 
     def drop_all(self, bind_key: str | None | list[str | None] = "__all__") -> None:
         """Drop tables by calling ``metadata.drop_all()`` for all or some bind keys.
@@ -916,7 +681,7 @@ class SQLAlchemy:
         .. versionchanged:: 0.12
             Added the ``bind`` and ``app`` parameters.
         """
-        self._call_for_binds(bind_key, "drop_all")
+        pass
 
     def reflect(self, bind_key: str | None | list[str | None] = "__all__") -> None:
         """Load table definitions from the database by calling ``metadata.reflect()``
@@ -934,7 +699,7 @@ class SQLAlchemy:
         .. versionchanged:: 0.12
             Added the ``bind`` and ``app`` parameters.
         """
-        self._call_for_binds(bind_key, "reflect")
+        pass
 
     def _set_rel_query(self, kwargs: dict[str, t.Any]) -> None:
         """Apply the extension's :attr:`Query` class as the default for relationships
@@ -942,15 +707,7 @@ class SQLAlchemy:
 
         :meta private:
         """
-        kwargs.setdefault("query_class", self.Query)
-
-        if "backref" in kwargs:
-            backref = kwargs["backref"]
-
-            if isinstance(backref, str):
-                backref = (backref, {})
-
-            backref[1].setdefault("query_class", self.Query)
+        pass
 
     def relationship(
         self, *args: t.Any, **kwargs: t.Any
@@ -961,8 +718,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             The :attr:`Query` class is set on ``backref``.
         """
-        self._set_rel_query(kwargs)
-        return sa_orm.relationship(*args, **kwargs)
+        pass
 
     def dynamic_loader(
         self, argument: t.Any, **kwargs: t.Any
@@ -973,8 +729,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             The :attr:`Query` class is set on ``backref``.
         """
-        self._set_rel_query(kwargs)
-        return sa_orm.dynamic_loader(argument, **kwargs)
+        pass
 
     def _relation(
         self, *args: t.Any, **kwargs: t.Any
@@ -989,9 +744,7 @@ class SQLAlchemy:
         .. versionchanged:: 3.0
             The :attr:`Query` class is set on ``backref``.
         """
-        self._set_rel_query(kwargs)
-        f = sa_orm.relationship
-        return f(*args, **kwargs)
+        pass
 
     def __getattr__(self, name: str) -> t.Any:
         if name == "relation":

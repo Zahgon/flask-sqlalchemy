@@ -66,52 +66,9 @@ class _QueryInfo:
     end_time: float
     location: str
 
-    @property
-    def duration(self) -> float:
-        return self.end_time - self.start_time
 
 
-def _listen(engine: sa.engine.Engine) -> None:
-    sa_event.listen(engine, "before_cursor_execute", _record_start, named=True)
-    sa_event.listen(engine, "after_cursor_execute", _record_end, named=True)
 
 
-def _record_start(context: sa.engine.ExecutionContext, **kwargs: t.Any) -> None:
-    if not has_app_context():
-        return
-
-    context._fsa_start_time = perf_counter()  # type: ignore[attr-defined]
 
 
-def _record_end(context: sa.engine.ExecutionContext, **kwargs: t.Any) -> None:
-    if not has_app_context():
-        return
-
-    if "_sqlalchemy_queries" not in g:
-        g._sqlalchemy_queries = []
-
-    import_top = current_app.import_name.partition(".")[0]
-    import_dot = f"{import_top}."
-    frame = inspect.currentframe()
-
-    while frame:
-        name = frame.f_globals.get("__name__")
-
-        if name and (name == import_top or name.startswith(import_dot)):
-            code = frame.f_code
-            location = f"{code.co_filename}:{frame.f_lineno} ({code.co_name})"
-            break
-
-        frame = frame.f_back
-    else:
-        location = "<unknown>"
-
-    g._sqlalchemy_queries.append(
-        _QueryInfo(
-            statement=context.statement,
-            parameters=context.parameters,
-            start_time=context._fsa_start_time,  # type: ignore[attr-defined]
-            end_time=perf_counter(),
-            location=location,
-        )
-    )

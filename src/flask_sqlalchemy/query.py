@@ -27,12 +27,7 @@ class Query(sa_orm.Query):  # type: ignore[type-arg]
         :param ident: The primary key to query.
         :param description: A custom message to show on the error page.
         """
-        rv = self.get(ident)
-
-        if rv is None:
-            abort(404, description=description)
-
-        return rv
+        pass
 
     def first_or_404(self, description: str | None = None) -> t.Any:
         """Like :meth:`~sqlalchemy.orm.Query.first` but aborts with a ``404 Not Found``
@@ -40,12 +35,7 @@ class Query(sa_orm.Query):  # type: ignore[type-arg]
 
         :param description: A custom message to show on the error page.
         """
-        rv = self.first()
-
-        if rv is None:
-            abort(404, description=description)
-
-        return rv
+        pass
 
     def one_or_404(self, description: str | None = None) -> t.Any:
         """Like :meth:`~sqlalchemy.orm.Query.one` but aborts with a ``404 Not Found``
@@ -55,10 +45,7 @@ class Query(sa_orm.Query):  # type: ignore[type-arg]
 
         .. versionadded:: 3.0
         """
-        try:
-            return self.one()
-        except (sa_exc.NoResultFound, sa_exc.MultipleResultsFound):
-            abort(404, description=description)
+        pass
 
     def paginate(
         self,
@@ -95,11 +82,4 @@ class Query(sa_orm.Query):  # type: ignore[type-arg]
         .. versionchanged:: 3.0
             ``max_per_page`` defaults to 100.
         """
-        return QueryPagination(
-            query=self,
-            page=page,
-            per_page=per_page,
-            max_per_page=max_per_page,
-            error_out=error_out,
-            count=count,
-        )
+        pass

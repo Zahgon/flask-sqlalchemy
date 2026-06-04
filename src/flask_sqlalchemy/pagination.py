@@ -87,55 +87,6 @@ class Pagination:
         self.total: int | None = total
         """The total number of items across all pages."""
 
-    @staticmethod
-    def _prepare_page_args(
-        *,
-        page: int | None = None,
-        per_page: int | None = None,
-        max_per_page: int | None = None,
-        error_out: bool = True,
-    ) -> tuple[int, int]:
-        if request:
-            if page is None:
-                try:
-                    page = int(request.args.get("page", 1))
-                except (TypeError, ValueError):
-                    if error_out:
-                        abort(404)
-
-                    page = 1
-
-            if per_page is None:
-                try:
-                    per_page = int(request.args.get("per_page", 20))
-                except (TypeError, ValueError):
-                    if error_out:
-                        abort(404)
-
-                    per_page = 20
-        else:
-            if page is None:
-                page = 1
-
-            if per_page is None:
-                per_page = 20
-
-        if max_per_page is not None:
-            per_page = min(per_page, max_per_page)
-
-        if page < 1:
-            if error_out:
-                abort(404)
-            else:
-                page = 1
-
-        if per_page < 1:
-            if error_out:
-                abort(404)
-            else:
-                per_page = 20
-
-        return page, per_page
 
     @property
     def _query_offset(self) -> int:
@@ -145,7 +96,7 @@ class Pagination:
 
         .. versionadded:: 3.0
         """
-        return (self.page - 1) * self.per_page
+        pass
 
     def _query_items(self) -> list[t.Any]:
         """Execute the query to get the items on the current page.
@@ -176,10 +127,7 @@ class Pagination:
 
         .. versionadded:: 3.0
         """
-        if len(self.items) == 0:
-            return 0
-
-        return (self.page - 1) * self.per_page + 1
+        pass
 
     @property
     def last(self) -> int:
@@ -188,29 +136,22 @@ class Pagination:
 
         .. versionadded:: 3.0
         """
-        first = self.first
-        return max(first, first + len(self.items) - 1)
+        pass
 
     @property
     def pages(self) -> int:
         """The total number of pages."""
-        if self.total == 0 or self.total is None:
-            return 0
-
-        return ceil(self.total / self.per_page)
+        pass
 
     @property
     def has_prev(self) -> bool:
         """``True`` if this is not the first page."""
-        return self.page > 1
+        pass
 
     @property
     def prev_num(self) -> int | None:
         """The previous page number, or ``None`` if this is the first page."""
-        if not self.has_prev:
-            return None
-
-        return self.page - 1
+        pass
 
     def prev(self, *, error_out: bool = False) -> Pagination:
         """Query the :class:`Pagination` object for the previous page.
@@ -219,28 +160,17 @@ class Pagination:
             and ``page`` is not 1, or if ``page`` or ``per_page`` is less than 1, or if
             either are not ints.
         """
-        p = type(self)(
-            page=self.page - 1,
-            per_page=self.per_page,
-            error_out=error_out,
-            count=False,
-            **self._query_args,
-        )
-        p.total = self.total
-        return p
+        pass
 
     @property
     def has_next(self) -> bool:
         """``True`` if this is not the last page."""
-        return self.page < self.pages
+        pass
 
     @property
     def next_num(self) -> int | None:
         """The next page number, or ``None`` if this is the last page."""
-        if not self.has_next:
-            return None
-
-        return self.page + 1
+        pass
 
     def next(self, *, error_out: bool = False) -> Pagination:
         """Query the :class:`Pagination` object for the next page.
@@ -249,16 +179,7 @@ class Pagination:
             and ``page`` is not 1, or if ``page`` or ``per_page`` is less than 1, or if
             either are not ints.
         """
-        p = type(self)(
-            page=self.page + 1,
-            per_page=self.per_page,
-            max_per_page=self.max_per_page,
-            error_out=error_out,
-            count=False,
-            **self._query_args,
-        )
-        p.total = self.total
-        return p
+        pass
 
     def iter_pages(
         self,
@@ -292,34 +213,7 @@ class Pagination:
         .. versionchanged:: 3.0
             All parameters are keyword-only.
         """
-        pages_end = self.pages + 1
-
-        if pages_end == 1:
-            return
-
-        left_end = min(1 + left_edge, pages_end)
-        yield from range(1, left_end)
-
-        if left_end == pages_end:
-            return
-
-        mid_start = max(left_end, self.page - left_current)
-        mid_end = min(self.page + right_current + 1, pages_end)
-
-        if mid_start - left_end > 0:
-            yield None
-
-        yield from range(mid_start, mid_end)
-
-        if mid_end == pages_end:
-            return
-
-        right_start = max(mid_end, pages_end - right_edge)
-
-        if right_start - mid_end > 0:
-            yield None
-
-        yield from range(right_start, pages_end)
+        pass
 
     def __iter__(self) -> t.Iterator[t.Any]:
         yield from self.items
@@ -332,18 +226,7 @@ class SelectPagination(Pagination):
     .. versionadded:: 3.0
     """
 
-    def _query_items(self) -> list[t.Any]:
-        select = self._query_args["select"]
-        select = select.limit(self.per_page).offset(self._query_offset)
-        session = self._query_args["session"]
-        return list(session.execute(select).unique().scalars())
 
-    def _query_count(self) -> int:
-        select = self._query_args["select"]
-        sub = select.options(sa_orm.lazyload("*")).order_by(None).subquery()
-        session = self._query_args["session"]
-        out = session.execute(sa.select(sa.func.count()).select_from(sub)).scalar()
-        return out  # type: ignore[no-any-return]
 
 
 class QueryPagination(Pagination):
@@ -353,12 +236,4 @@ class QueryPagination(Pagination):
     .. versionadded:: 3.0
     """
 
-    def _query_items(self) -> list[t.Any]:
-        query = self._query_args["query"]
-        out = query.limit(self.per_page).offset(self._query_offset).all()
-        return out  # type: ignore[no-any-return]
 
-    def _query_count(self) -> int:
-        # Query.count automatically disables eager loads
-        out = self._query_args["query"].order_by(None).count()
-        return out  # type: ignore[no-any-return]
